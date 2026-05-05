@@ -22,13 +22,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        scala:
-          - "2.13.16"
-          - "3.3.7"
-    name: Test on Scala ${{ matrix.scala }}
+    name: Test
     steps:
       - uses: actions/checkout@v6
         with:
@@ -38,5 +32,5 @@ jobs:
         with:
           jvm: "temurin:1.17.0.15"
           apps: sbt
-      - name: Run tests
-        run: sbt "++${{ matrix.scala }}; tests/test"
+      - name: Compile and test all variations
+        run: sbt test

@@ -1,19 +1,40 @@
 import com.jsuereth.sbtpgp.PgpKeys.publishSigned
+import commandmatrix.extra.*
 
 // Used to publish snapshots to Maven Central.
 val mavenCentralSnapshots = "Maven Central Snapshots" at "https://central.sonatype.com/repository/maven-snapshots"
 
 // Versions:
 
-val scala2_13 = "2.13.16"
-val scala3 = "3.3.7"
-val allScalaVersions = Seq(scala2_13, scala3)
+val versions = new {
+  val scala213 = "2.13.16"
+  val scala3 = "3.3.7"
 
-val hearthVersion = "0.3.0-14-gf117e17-SNAPSHOT"
-val refinedVersion = "0.11.3"
-val munitVersion = "1.2.4"
+  val scalas = List(scala213, scala3)
+  val platforms = List(VirtualAxis.jvm, VirtualAxis.js, VirtualAxis.native)
+
+  val hearth = "0.3.0-8-gc90a7fe-SNAPSHOT"
+  val refined = "0.11.3"
+  val munit = "1.2.4"
+
+  def fold[A](scalaVersion: String)(for2_13: => Seq[A], for3: => Seq[A]): Seq[A] =
+    CrossVersion.partialVersion(scalaVersion) match {
+      case Some((2, 13)) => for2_13
+      case Some((3, _))  => for3
+      case _             => Seq.empty
+    }
+}
 
 // Common settings:
+
+val settings = Seq(
+  git.useGitDescribe := true,
+  git.uncommittedSignifier := None,
+  scalacOptions ++= versions.fold(scalaVersion.value)(
+    for2_13 = Seq("-Xsource:3", "-language:implicitConversions"),
+    for3 = Seq("-language:implicitConversions")
+  )
+)
 
 val publishSettings = Seq(
   organization := "com.kubuszok",
@@ -46,17 +67,54 @@ val publishSettings = Seq(
   versionScheme := Some("early-semver"),
   git.useGitDescribe := true,
   git.uncommittedSignifier := None,
-  // Sonatype ignores isSnapshot setting and only looks at -SNAPSHOT suffix in version:
-  //   https://central.sonatype.org/publish/publish-maven/#performing-a-snapshot-deployment
-  // meanwhile sbt-git used to set up SNAPSHOT if there were uncommitted changes:
-  //   https://github.com/sbt/sbt-git/issues/164
-  // (now this suffix is empty by default) so we need to fix it manually.
   git.gitUncommittedChanges := git.gitCurrentTags.value.isEmpty,
   git.uncommittedSignifier := Some("SNAPSHOT")
 )
 
 val noPublishSettings =
   Seq(publish / skip := true, publishArtifact := false)
+
+val resolverSettings = Seq(
+  resolvers += mavenCentralSnapshots,
+  resolvers += Resolver.mavenLocal
+)
+
+// Cross-quotes plugin for Scala 3:
+
+val useCrossQuotes = versions.scalas.flatMap { scalaVersion =>
+  versions.fold(scalaVersion)(
+    for2_13 = List(
+      MatrixAction {
+        case (version, List(VirtualAxis.jvm)) => version.isScala2
+        case _                                => false
+      }.Configure(_.settings(libraryDependencies += "com.kubuszok" %% "hearth-cross-quotes" % versions.hearth)),
+      MatrixAction {
+        case (version, List(VirtualAxis.js)) => version.isScala2
+        case _                               => false
+      }.Configure(_.settings(libraryDependencies += "com.kubuszok" %% "hearth-cross-quotes" % versions.hearth)),
+      MatrixAction {
+        case (version, List(VirtualAxis.native)) => version.isScala2
+        case _                                   => false
+      }.Configure(_.settings(libraryDependencies += "com.kubuszok" %% "hearth-cross-quotes" % versions.hearth))
+    ),
+    for3 = List(
+      MatrixAction
+        .ForScala(_.isScala3)
+        .Configure(
+          _.settings(
+            libraryDependencies += "com.kubuszok" %% "hearth-cross-quotes" % versions.hearth % Provided,
+            scalacOptions ++= {
+              val pluginJar = (Compile / dependencyClasspath).value
+                .find(_.data.getName.contains("hearth-cross-quotes"))
+                .map(_.data.getAbsolutePath)
+                .getOrElse(sys.error("hearth-cross-quotes jar not found on classpath"))
+              Seq(s"-Xplugin:$pluginJar")
+            }
+          )
+        )
+    )
+  )
+}
 
 // Modules:
 
@@ -67,66 +125,50 @@ lazy val root = project
   .settings(noPublishSettings)
   .settings(
     name := "refined-compat-root",
-    crossScalaVersions := Nil,
     commands += Command.command("ci-release") { state =>
       val extracted = Project.extract(state)
       val tags = extracted.get(git.gitCurrentTags)
-      val cmd = if (tags.nonEmpty) "+publishSigned ; sonaRelease" else "+publishSigned"
+      val cmd = if (tags.nonEmpty) "publishSigned ; sonaRelease" else "publishSigned"
       cmd :: state
     }
   )
-  .aggregate(compat, tests)
+  .aggregate(compat.projectRefs *)
+  .aggregate(tests.projectRefs *)
 
-lazy val compat = project
+lazy val compat = projectMatrix
+  .in(file("compat"))
+  .someVariations(versions.scalas, versions.platforms)(useCrossQuotes *)
   .enablePlugins(GitVersioning, GitBranchPrompt)
-  .settings(publishSettings)
   .settings(
+    moduleName := "refined-compat",
     name := "refined-compat",
-    crossScalaVersions := allScalaVersions,
-    scalaVersion := scala3,
-    scalacOptions ++= (CrossVersion.partialVersion(scalaVersion.value) match {
-      case Some((2, _)) => Seq("-Xsource:3", "-language:implicitConversions")
-      case _            => Seq("-language:implicitConversions")
-    }),
-    resolvers += mavenCentralSnapshots,
-    resolvers += Resolver.mavenLocal,
-    libraryDependencies ++= Seq(
-      "com.kubuszok" %% "hearth" % hearthVersion,
-      "eu.timepit" %% "refined" % refinedVersion
-    ),
-    libraryDependencies ++= (CrossVersion.partialVersion(scalaVersion.value) match {
-      case Some((2, _)) =>
-        Seq("com.kubuszok" %% "hearth-cross-quotes" % hearthVersion)
-      case _ =>
-        Seq("com.kubuszok" %% "hearth-cross-quotes" % hearthVersion % Provided)
-    }),
-    scalacOptions ++= (CrossVersion.partialVersion(scalaVersion.value) match {
-      case Some((2, _)) => Nil
-      case _ =>
-        val pluginJar = (Compile / dependencyClasspath).value
-          .find(_.data.getName.contains("hearth-cross-quotes"))
-          .map(_.data.getAbsolutePath)
-          .getOrElse(sys.error("hearth-cross-quotes jar not found on classpath"))
-        Seq(s"-Xplugin:$pluginJar")
-    })
+    description := "Compile-time refinement validation for refined types on Scala 3, powered by Hearth's semiEval"
   )
-
-lazy val tests = project
-  .dependsOn(compat)
-  .enablePlugins(GitVersioning, GitBranchPrompt)
-  .settings(publishSettings)
-  .settings(noPublishSettings)
+  .settings(settings *)
+  .settings(publishSettings *)
+  .settings(resolverSettings *)
   .settings(
-    name := "refined-compat-tests",
-    crossScalaVersions := allScalaVersions,
-    scalaVersion := scala3,
-    scalacOptions ++= (CrossVersion.partialVersion(scalaVersion.value) match {
-      case Some((2, _)) => Seq("-Xsource:3", "-language:implicitConversions")
-      case _            => Seq("-language:implicitConversions")
-    }),
-    resolvers += mavenCentralSnapshots,
-    resolvers += Resolver.mavenLocal,
     libraryDependencies ++= Seq(
-      "org.scalameta" %% "munit" % munitVersion % Test
+      "com.kubuszok" %%% "hearth" % versions.hearth,
+      "eu.timepit" %%% "refined" % versions.refined
     )
   )
+
+lazy val tests = projectMatrix
+  .in(file("tests"))
+  .someVariations(versions.scalas, List(VirtualAxis.jvm))()
+  .enablePlugins(GitVersioning, GitBranchPrompt)
+  .settings(
+    moduleName := "refined-compat-tests",
+    name := "refined-compat-tests"
+  )
+  .settings(settings *)
+  .settings(publishSettings *)
+  .settings(noPublishSettings *)
+  .settings(resolverSettings *)
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.scalameta" %%% "munit" % versions.munit % Test
+    )
+  )
+  .dependsOn(compat)
