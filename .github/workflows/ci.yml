@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  check-formatting:
+    runs-on: ubuntu-latest
+    name: Check formatting
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: coursier/setup-action@v3.0.0
+        with:
+          apps: scalafmt
+      - name: Check formatting
+        run: scalafmt --check
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scala:
+          - "2.13.16"
+          - "3.3.7"
+    name: Test on Scala ${{ matrix.scala }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: coursier/cache-action@v8
+      - uses: coursier/setup-action@v3.0.0
+        with:
+          jvm: "temurin:1.17.0.15"
+          apps: sbt
+      - name: Run tests
+        run: sbt "++${{ matrix.scala }}; tests/test"
