@@ -30,21 +30,45 @@ libraryDependencies += "com.kubuszok" %% "refined-compat" % "<version>"
 
 Replace `import eu.timepit.refined.auto._` with `import hearth.refined.auto._`.
 
-## Supported predicates
+## Provided API
 
-The following predicates are validated at compile time:
+### `auto._` — implicit conversions
 
-- **Numeric**: `Positive`, `NonNegative`, `Negative`, `NonPositive` (and underlying `Greater[N]`, `Less[N]`, `GreaterEqual[N]`, `LessEqual[N]`)
-- **Collection**: `NonEmpty`, `Empty`
-- **Boolean combinators**: `Not[P]`, `And[A, B]`, `Or[A, B]`
+| Method | What it does |
+|--------|-------------|
+| `autoRefineV` | Implicit `T` → `Refined[T, P]` with compile-time validation |
+| `autoInfer` | Implicit `Refined[T, A]` → `Refined[T, B]` when `Inference[A, B]` holds |
+| `autoUnwrap` | Implicit `F[T, P]` → `T` (unwrapping) |
 
-For predicates not yet supported at compile time, use `refineV` for runtime validation.
+### `refineMV[P](value)` — explicit compile-time validation
+
+```scala
+import hearth.refined.refineMV
+import eu.timepit.refined.numeric.Positive
+
+val x = refineMV[Positive](42)   // compiles
+val y = refineMV[Positive](-1)   // compilation error
+```
+
+### `RefinedTypeOpsM[FTP, T]` — custom refined type companions
+
+```scala
+import eu.timepit.refined.api.Refined
+import eu.timepit.refined.numeric.Positive
+import hearth.refined.RefinedTypeOpsM
+
+type PosInt = Int Refined Positive
+object PosInt extends RefinedTypeOpsM[PosInt, Int]
+
+val x = PosInt(42)   // compiles, validated at compile time
+val y = PosInt(-1)   // compilation error
+```
 
 ## How it works
 
-1. Uses Hearth's `semiEval` to extract the literal value from the expression AST at compile time
-2. Tries to evaluate the `Validate[T, P]` instance via `semiEval` (works for simple instances)
-3. Falls back to matching the predicate type `P` for common refined predicates
+1. Uses Hearth's `semiEval` to extract the value from the expression AST at compile time
+2. Uses `semiEval` to evaluate the `Validate[T, P]` (or `Inference[A, B]`) instance — this works for any predicate whose `Validate` instance can be reconstructed from the classpath, including predicates that use lambdas, blocks, and inherited methods
+3. Calls `validate.validate(value)` on the reconstructed instance at macro expansion time
 4. If validation passes, emits `Refined.unsafeApply(value)`; if it fails, aborts compilation with an error message
 
 ## License
