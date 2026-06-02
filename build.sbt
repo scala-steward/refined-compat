@@ -16,7 +16,7 @@ val versions = new {
 
   val hearth = "0.3.0-22-gc856d5b-SNAPSHOT"
   val refined = "0.11.3"
-  val munit = "1.2.4"
+  val munit = "1.3.2"
 }
 
 // Common settings:
