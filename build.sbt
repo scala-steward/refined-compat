@@ -10,14 +10,14 @@ Global / allowUnsafeScalaLibUpgrade := true
 // (the proven sbt-2.0 pattern).
 
 val scala213 = "2.13.18"
-val scala3   = "3.3.8"
+val scala3 = "3.3.8"
 
-val scalas    = List(scala213, scala3)
+val scalas = List(scala213, scala3)
 val platforms = List(VirtualAxis.jvm, VirtualAxis.js, VirtualAxis.native)
 
-val hearthVersion  = "0.3.1-54-g83c3eb5-SNAPSHOT"
+val hearthVersion = "0.3.1-55-g61e5238-SNAPSHOT"
 val refinedVersion = "0.11.3"
-val munitVersion   = "1.3.3"
+val munitVersion = "1.3.3"
 
 // Common settings:
 
@@ -162,8 +162,8 @@ lazy val compat = projectMatrix
   .settings(
     // sbt 2.0: %% is platform-aware (encodes Scala version + JS/Native suffix); %%% is gone.
     libraryDependencies ++= Seq(
-      "com.kubuszok" %% "hearth"  % hearthVersion,
-      "eu.timepit"   %% "refined" % refinedVersion
+      "com.kubuszok" %% "hearth" % hearthVersion,
+      "eu.timepit" %% "refined" % refinedVersion
     )
   )
 
