@@ -10,7 +10,7 @@ Global / allowUnsafeScalaLibUpgrade := true
 // (the proven sbt-2.0 pattern).
 
 val scala213 = "2.13.18"
-val scala3 = "3.3.8"
+val scala3 = "3.8.4"
 
 val scalas = List(scala213, scala3)
 val platforms = List(VirtualAxis.jvm, VirtualAxis.js, VirtualAxis.native)
